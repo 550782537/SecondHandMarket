@@ -13,7 +13,6 @@ import android.os.Looper;
 import android.os.Message;
 import android.os.NetworkOnMainThreadException;
 import android.provider.MediaStore;
-import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -25,13 +24,9 @@ import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.activity.result.ActivityResult;
-import androidx.activity.result.ActivityResultCallback;
 import androidx.activity.result.ActivityResultLauncher;
-import androidx.activity.result.contract.ActivityResultContract;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
@@ -39,23 +34,25 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.example.secondhandmarket.FileUtils;
-import com.example.secondhandmarket.MainActivity;
+import com.example.secondhandmarket.GetUserInfor;
 import com.example.secondhandmarket.R;
 import com.example.secondhandmarket.appkey.appMobSDK;
 import com.google.gson.Gson;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
-
-import javax.xml.transform.Result;
+import java.util.Map;
 
 import okhttp3.Call;
 import okhttp3.Callback;
 import okhttp3.Headers;
+import okhttp3.MediaType;
+import okhttp3.MultipartBody;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
+import okhttp3.RequestBody;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
 
@@ -64,12 +61,16 @@ public class ReleaseFragment extends Fragment {
     private Context context;
 
 
-    private EditText etInputReleaseContents, etInputReleasePrice;
+    private EditText etInputReleaseContents, etInputReleasePrice,etInputReleaseadds;
     private Spinner spCommoTypeName;
     private ArrayAdapter<String> adaptertypeNames;
     private TextView tvReleaseButton;
     private long imageCode;
 
+    private String TypeName;
+    private int TypeID;
+    private String [] TypeNameList=new String[20];
+    private int [] TypeIDList=new int[20];
     //上传图片用的handler 获取imagecode
     private  Handler handler = new Handler(Looper.getMainLooper()) {
         @Override
@@ -100,7 +101,7 @@ public class ReleaseFragment extends Fragment {
                              Bundle savedInstanceState) {
         // Inflate the layout for this fragment
         View view = inflater.inflate(R.layout.fragment_release, container, false);
-
+        etInputReleaseadds=view.findViewById(R.id.input_released_commodity_addr);
         etInputReleaseContents = view.findViewById(R.id.input_released_commodity_contents);
         etInputReleasePrice = view.findViewById(R.id.input_released_commodity_price);
         spCommoTypeName = view.findViewById(R.id.spinner_released_commodity_typename);
@@ -117,7 +118,8 @@ public class ReleaseFragment extends Fragment {
                 @Override
                 public void onItemSelected(AdapterView<?> adapterView, View view, int i, long l) {
                     //获取id
-
+                    TypeName=TypeNameList[i];
+                    TypeID=TypeIDList[i];
                 }
 
                 @Override
@@ -125,6 +127,7 @@ public class ReleaseFragment extends Fragment {
 
                 }
             });
+
         }
         ActivityResultLauncher launcher = registerForActivityResult(
                 new ActivityResultContracts.StartActivityForResult(), result -> {
@@ -148,7 +151,9 @@ public class ReleaseFragment extends Fragment {
                         pickPictureAdapter.setListener(new PickPictureAdapter.OnItemClickListener() {
                             @Override
                             public void click(View view, int positon) {
+
                             }
+
                             @Override
                             public void del(View view) {
                                 tv_account.setText(Integer.toString(imagesPath.size()));
@@ -156,9 +161,23 @@ public class ReleaseFragment extends Fragment {
                         });
                     }
                 });
-
         tvReleaseButton.setOnClickListener(v->{
-            System.out.println(imagesPath);
+
+            long userId = new GetUserInfor(context).getUSerID();
+
+            int Userid=(int)userId;
+
+            String Adds=etInputReleaseadds.getText().toString();
+            String Content=etInputReleaseContents.getText().toString();
+
+            if(userId!=-1&&!etInputReleasePrice.getText().toString().equals("")
+                    &&!Content.equals("")&&!Adds.equals("") &&imagesPath.size()!=0){
+                postfile(imagesPath);
+            }
+            else Toast.makeText(context, "格式不正确，请检查", Toast.LENGTH_SHORT).show();
+
+
+
         });
         iv_Pic.setOnClickListener(v->{
             if(ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE)
@@ -176,6 +195,7 @@ public class ReleaseFragment extends Fragment {
 
        return view;
     }
+
 
     private void getTypeNameList() {
             String url = "http://47.107.52.7:88/member/tran/goods/type";
@@ -231,6 +251,8 @@ public class ReleaseFragment extends Fragment {
                                             //处理这个字符串就可以直接拿到typeid和typename
                                             dataTypeNames.add(tbd.getId() +"-"+ tbd.getType());
 //                                       System.out.println(tbd.getId() + tbd.getType());
+                                            TypeIDList[i]=tbd.getId();
+                                            TypeNameList[i]=tbd.getType();
 
                                         }
 //                                        if(dataTypeNames.size() ==0){
@@ -257,9 +279,225 @@ public class ReleaseFragment extends Fragment {
 
     }
 
+    //添加商品（添加商品信息）
+    private final Gson gson = new Gson();
+    private void Addgoods(String Adds,String Content,long Price,int TypeID,String TypeName,int userId,long ImageCode) {
+        new Thread(()->{
+            // url路径
+            String url = "http://47.107.52.7:88/member/tran/goods/add";
+
+            // 请求头
+            Headers headers = new Headers.Builder()
+                    .add("appId", new appMobSDK().appID)
+                    .add("appSecret", new appMobSDK().appSecret)
+                    .add("Accept", "application/json, text/plain, */*")
+                    .build();
+
+
+            // 请求体
+            // PS.用户也可以选择自定义一个实体类，然后使用类似fastjson的工具获取json串
+            Map<String, Object> bodyMap = new HashMap<>();
+
+            bodyMap.put("addr", Adds);
+            bodyMap.put("content", Content);
+            bodyMap.put("id", "1");
+            bodyMap.put("imageCode", ImageCode);
+            bodyMap.put("price", Price);
+            bodyMap.put("typeId", TypeID);
+            bodyMap.put("typeName", TypeName);
+            bodyMap.put("userId", userId);
+            // 将Map转换为字符串类型加入请求体中
+            String body = gson.toJson(bodyMap);
+
+            MediaType MEDIA_TYPE_JSON = MediaType.parse("application/json; charset=utf-8");
+
+            //请求组合创建
+            Request request = new Request.Builder()
+                    .url(url)
+                    // 将请求头加至请求中
+                    .headers(headers)
+                    .post(RequestBody.create(MEDIA_TYPE_JSON, body))
+                    .build();
+            try {
+                OkHttpClient client = new OkHttpClient();
+                //发起请求，传入callback进行回调
+                client.newCall(request).enqueue(callback);
+            }catch (NetworkOnMainThreadException ex){
+                ex.printStackTrace();
+            }
+        }).start();
+    }
+    private final Callback callback = new Callback() {
+        @Override
+        public void onFailure(@NonNull Call call, IOException e) {
+            //TODO 请求失败处理
+            Looper.prepare();
+            Toast.makeText(context, e.getMessage(), Toast.LENGTH_SHORT).show();
+            Looper.loop();
+        }
+        @Override
+        public void onResponse(@NonNull Call call, Response response) throws IOException {
+
+            RelResponce relResponce = new RelResponce();
+            ResponseBody body = response.body();
+            assert body != null;
+            try{
+                String json = new String(body.bytes());
+                Gson gson = new Gson();
+                relResponce = gson.fromJson(json, relResponce.getClass());
+                System.out.println(json);
+
+            }catch (IOException e){
+                e.printStackTrace();
+            }
+            if(relResponce.getCode()==200){
+                Looper.prepare();
+                Toast.makeText(context, "上传成功！", Toast.LENGTH_SHORT).show();
+                Looper.loop();
+//              startActivity(new Intent(context, Success.class));
+//                getActivity().finish();
+            }
+//            Looper.prepare();
+//            Toast.makeText(context, relResponce.getMsg(), Toast.LENGTH_SHORT).show();
+//            Looper.loop();
+        }
+    };
+
+    private static class RelResponce{
+        private String msg;
+        private int code;
+        private String data;
+
+        public String getMsg() {
+            return msg;
+        }
+
+        public int getCode() {
+            return code;
+        }
+
+        public String getData() {
+            return data;
+        }
+
+    }
+
+
+    //上传文件
+    private void postfile(ArrayList<String> fList){
+        String url = "http://47.107.52.7:88/member/tran/image/upload";
+
+        Headers headers = new Headers.Builder()
+                .add("Accept","application/json, text/plain, */*")
+                .add("appId", new appMobSDK().appID)
+                .add("appSecret", new appMobSDK().appSecret)
+                .add("Content-Type", "multipart/form-data")
+                .build();
+
+        MediaType MEDIA_TYPE_JSON = MediaType.parse("application/json; charset=utf-8");
+        MultipartBody.Builder builder = new MultipartBody.Builder().setType(MultipartBody.FORM);
+        for(int i=0; i < fList.size(); i++){
+            String filepath = fList.get(i);
+            RequestBody requestBody = RequestBody.create(MEDIA_TYPE_JSON,filepath);
+            builder.addFormDataPart("fileList",filepath,requestBody);
+        }
+        MultipartBody multipartBody = builder.build();
+
+        Request request = new Request.Builder()
+                .url(url)
+                // 将请求头加至请求中
+                .headers(headers)
+                .post(multipartBody)
+                .build();
+
+        try {
+            OkHttpClient client = new OkHttpClient();
+            //发起请求，传入callback进行回调
+            client.newCall(request).enqueue(new Callback() {
+
+                @Override
+                public void onFailure(Call call, IOException e) {
+                    Looper.prepare();
+                    Toast.makeText(context, e.getMessage(), Toast.LENGTH_SHORT).show();
+                    Looper.loop();
+                }
+
+                @Override
+                public void onResponse(Call call, Response response) {
+                    ResponseBody body = response.body();
+                    postFileBean mpostFileBean = new postFileBean();
+                    try{
+                        assert body != null;
+                        mpostFileBean = new Gson().
+                                fromJson(new String(body.bytes()), mpostFileBean.getClass());
+
+                    }catch (IOException e){
+                        e.printStackTrace();
+                    }
+
+                    long userId = new GetUserInfor(context).getUSerID();
+                    int Userid=(int)userId;
+                    long imageCode=mpostFileBean.getData().getImageCode();
+                    double price=Double.parseDouble(etInputReleasePrice.getText().toString());
+                    long Price=(long)price;
+                    String Adds=etInputReleaseadds.getText().toString();
+                    String Content=etInputReleaseContents.getText().toString();
+
+                    Addgoods(Adds,Content,Price,TypeID,TypeName,Userid,imageCode);
+                    System.out.println(imageCode);
+                }
+            });
+        }catch (NetworkOnMainThreadException ex){
+            ex.printStackTrace();
+        }
+    }
+    /*
+    复制
+{
+msg:"string"
+code:0
+data:{
+imageCode:0
+imageUrlList:[
+{}
+]
+}
+}*/
+    static class postFileBean{
+        private String msg;
+        private int code;
+        private postFileBean.data data;
+
+        public String getMsg() {
+            return msg;
+        }
+
+        public int getCode() {
+            return code;
+        }
+
+        public postFileBean.data getData() {
+            return data;
+        }
+
+        class data{
+            private long imageCode;
+            private List<String> imageUrlList;
+
+            public long getImageCode() {
+                return imageCode;
+            }
+
+            public List<String> getImageUrlList() {
+                return imageUrlList;
+            }
+        }
+    }
+
+
+
 
 }
-
 
 /*
 {
